@@ -13,6 +13,8 @@ and the rest keep working.
   prompt is never stopped.
 - **Working directories.** Pick a directory you used before, or type a new path with
   directory autocompletion. You can create the directory if it does not exist.
+- **File uploads.** Attach files with the paperclip button, by dropping them on the chat,
+  or by pasting images. See [Uploads](#uploads).
 - Chat with Markdown rendering, tool calls and results, thinking, and attachments.
 - Permission prompts and questions appear as cards.
 - Model, effort and mode can be changed at any time. While the CLI is stopped, the change
@@ -52,6 +54,7 @@ agent-web --addr 0.0.0.0:8787 --token s3cret
 | `--data-dir` | `AGENT_WEB_DATA_DIR` | `~/.config/agent-web` (Linux), `~/Library/Application Support/agent-web` (macOS) | Holds `agent-web.db` |
 | `--idle-timeout` | | `5m` | Stop an idle CLI after this long. `0` never stops it. |
 | `--claude`, `--codex` | | `claude`, `codex` | CLI executables |
+| `--upload-dir` | `AGENT_WEB_UPLOAD_DIR` | `${WORKDIR}/.scratch/uploads` | Where uploads are saved. `${WORKDIR}` is the session's working directory. |
 | `--drift-dir` | | | Save screens where a Claude recognizer disagrees with the CLI |
 | `--version` | | | Print the version and exit |
 
@@ -61,6 +64,32 @@ whose `Host` is not a loopback name, which blocks DNS rebinding. It rejects ever
 cross-origin request that changes state. Files the agent sends are served with a
 sandboxing Content-Security-Policy. Use TLS (a reverse proxy) when you expose it beyond
 your machine.
+
+## Uploads
+
+Attached files are uploaded right away into the session's upload directory, which
+defaults to `<working directory>/.scratch/uploads/`. Each file is saved as
+`<name>.<ext>`, or `<name>-<n>.<ext>` if that name is taken. Whitespace and shell
+metacharacters in a name become `_`. When the directory is inside the working
+directory, agent-web puts a `.gitignore` there so uploads stay out of git.
+
+The CLI is started with `AGENT_UPLOAD_DIR=<that directory>`. A prompt with attachments
+ends with a list of references:
+
+```
+What is wrong in this screenshot?
+
+Attached files:
+- $AGENT_UPLOAD_DIR/screenshot.png
+```
+
+Claude's Read tool takes a literal path and does not expand variables. agent-web
+therefore appends a system prompt (`--append-system-prompt`) that tells Claude to run
+`echo $AGENT_UPLOAD_DIR` first and then Read the absolute path. That exact command is
+pre-approved (`--allowedTools "Bash(echo $AGENT_UPLOAD_DIR)"`), so it does not prompt
+for permission. An upload directory outside the working directory is also passed with
+`--add-dir`. Codex gets the environment variable but not the instructions; its shell
+commands expand `$AGENT_UPLOAD_DIR` themselves.
 
 ## Development
 
@@ -125,7 +154,8 @@ frontend/             Nuxt 4 SPA (TypeScript, pnpm)
 
 Push a tag. `.github/workflows/release.yml` then builds the UI once, cross-compiles the
 four targets with `CGO_ENABLED=0`, and attaches the archives and `checksums.txt` to a
-GitHub release:
+GitHub release. A tag with a pre-release suffix, such as `v0.1.0-rc.1`, makes a
+pre-release, so `releases/latest` stays on the last stable version.
 
 ```sh
 git tag v0.1.0

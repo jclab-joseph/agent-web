@@ -42,6 +42,10 @@ type Config struct {
 	Providers map[string]bridge.Provider
 	// IdleTimeout stops a CLI that has been idle this long. 0 disables it.
 	IdleTimeout time.Duration
+	// UploadDir is where uploaded files are saved, given to the CLI as
+	// $AGENT_UPLOAD_DIR. ${WORKDIR} is the session's working directory.
+	// Default DefaultUploadDir.
+	UploadDir string
 	// DriftDir is passed to the Claude provider (recognizer drift fixtures).
 	DriftDir string
 	Logger   *slog.Logger

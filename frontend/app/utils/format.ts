@@ -67,3 +67,31 @@ export function toolSummary(input: unknown): string {
   }
   return JSON.stringify(input)
 }
+
+const ATTACHED = 'Attached files:'
+const REF = /^- \$AGENT_UPLOAD_DIR\/(.+)$/
+
+/**
+ * splitAttachments separates the "Attached files:" list that the server
+ * appends to prompts with uploads from the text the user typed.
+ */
+export function splitAttachments(text: string): { text: string; files: string[] } {
+  const at = text.lastIndexOf(ATTACHED)
+  if (at < 0 || (at > 0 && !text.slice(0, at).endsWith('\n'))) return { text, files: [] }
+  const lines = text.slice(at + ATTACHED.length).split('\n').filter((l) => l.trim())
+  const files: string[] = []
+  for (const l of lines) {
+    const m = REF.exec(l.trim())
+    if (!m) return { text, files: [] }
+    files.push(m[1]!)
+  }
+  return files.length ? { text: text.slice(0, at).trimEnd(), files } : { text, files: [] }
+}
+
+export function uploadURL(sessionId: string, name: string, download = false): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/uploads/${encodeURIComponent(name)}${download ? '?download=true' : ''}`
+}
+
+export function isImageName(name: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(name)
+}

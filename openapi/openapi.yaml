@@ -477,8 +477,12 @@ components:
     SendBody:
       additionalProperties: false
       properties:
+        files:
+          description: Names of uploaded files (from uploadFiles) to attach; the prompt lists them as $AGENT_UPLOAD_DIR/<name>
+          items:
+            type: string
+          type: array
         text:
-          minLength: 1
           type: string
       required:
         - text
@@ -556,6 +560,9 @@ components:
           type: string
         title:
           type: string
+        uploadDir:
+          description: Where uploads are saved; the CLI sees it as $AGENT_UPLOAD_DIR
+          type: string
       required:
         - id
         - provider
@@ -571,6 +578,7 @@ components:
         - createdAt
         - lastActiveAt
         - lastSeq
+        - uploadDir
       type: object
     Settings:
       additionalProperties: false
@@ -664,6 +672,40 @@ components:
           type: string
       required:
         - title
+      type: object
+    Upload:
+      additionalProperties: false
+      properties:
+        kind:
+          enum:
+            - image
+            - video
+            - audio
+            - pdf
+            - text
+            - file
+          type: string
+        mediaType:
+          type: string
+        name:
+          description: File name in the upload directory; pass it in sendPrompt's files
+          type: string
+        path:
+          description: Absolute path on the server
+          type: string
+        ref:
+          description: "How prompts refer to the file: $AGENT_UPLOAD_DIR/<name>"
+          type: string
+        size:
+          format: int64
+          type: integer
+      required:
+        - name
+        - ref
+        - path
+        - size
+        - mediaType
+        - kind
       type: object
     Workdir:
       additionalProperties: false
@@ -1462,6 +1504,94 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Type into the CLI's terminal
+      tags:
+        - sessions
+  /api/sessions/{id}/uploads:
+    post:
+      description: Saves the files in the session's upload directory ($AGENT_UPLOAD_DIR) as <name>.<ext>, or <name>-<n>.<ext> when the name is taken. Attach them with sendPrompt's files.
+      operationId: uploadFiles
+      parameters:
+        - description: Session id
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Session id
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            encoding:
+              files:
+                contentType: application/octet-stream
+            schema:
+              properties:
+                files:
+                  items:
+                    contentEncoding: binary
+                    contentMediaType: application/octet-stream
+                    description: Files to upload
+                    format: binary
+                    type: string
+                  type: array
+              required:
+                - files
+              type: object
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Upload"
+                type: array
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Upload files for a prompt
+      tags:
+        - sessions
+  /api/sessions/{id}/uploads/{name}:
+    get:
+      operationId: getUpload
+      parameters:
+        - description: Session id
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Session id
+            type: string
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: download
+          schema:
+            type: boolean
+      responses:
+        "200":
+          content:
+            application/octet-stream:
+              schema:
+                contentMediaType: application/octet-stream
+                format: binary
+                type: string
+          description: The file
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: An uploaded file
       tags:
         - sessions
   /api/workdirs:

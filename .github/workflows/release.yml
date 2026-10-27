@@ -122,3 +122,5 @@ jobs:
             dist/*.tar.gz
             dist/checksums.txt
           generate_release_notes: true
+          # v1.2.3-rc.1, v1.2.3-beta… (any tag with a pre-release suffix)
+          prerelease: ${{ contains(github.ref_name, '-') }}

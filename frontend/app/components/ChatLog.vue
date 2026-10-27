@@ -144,7 +144,12 @@ defineExpose({ scrollToBottom })
 
         <template v-if="it.kind === 'event'">
           <div v-if="it.ev.type === 'user_message'" class="user">
-            <div class="bubble" :class="{ command: it.ev.kind === 'command' }">{{ it.ev.text }}</div>
+            <template v-for="msg in [splitAttachments(it.ev.text || '')]" :key="0">
+              <div v-if="msg.text" class="bubble" :class="{ command: it.ev.kind === 'command' }">{{ msg.text }}</div>
+              <div v-if="msg.files.length" class="thumbs uploads">
+                <UploadChip v-for="f in msg.files" :key="f" :session-id="sessionId" :name="f" />
+              </div>
+            </template>
             <div v-if="it.ev.attachments?.length" class="thumbs">
               <AttachmentView v-for="a in it.ev.attachments" :key="a.id" :session-id="sessionId" :file="a" compact />
             </div>
@@ -302,6 +307,9 @@ defineExpose({ scrollToBottom })
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--code-bg);
+}
+.uploads {
+  justify-content: flex-end;
 }
 .thumbs {
   display: flex;

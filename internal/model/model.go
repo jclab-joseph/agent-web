@@ -169,6 +169,7 @@ type Session struct {
 	LastActiveAt time.Time     `json:"lastActiveAt"`
 	AutoStopAt   *time.Time    `json:"autoStopAt,omitempty" doc:"When the idle CLI will be stopped, if nothing happens before"`
 	LastSeq      int64         `json:"lastSeq" doc:"Sequence number of the latest event"`
+	UploadDir    string        `json:"uploadDir" doc:"Where uploads are saved; the CLI sees it as $AGENT_UPLOAD_DIR"`
 }
 
 // --- conversion from clicodebridge -------------------------------------------------
@@ -252,4 +253,14 @@ func (r Response) ToBridge() bridge.Response {
 		out.Answers = append(out.Answers, bridge.Answer{Selected: a.Selected, Text: a.Text})
 	}
 	return out
+}
+
+// Upload is a file the user uploaded into the session's upload directory.
+type Upload struct {
+	Name      string `json:"name" doc:"File name in the upload directory; pass it in sendPrompt's files"`
+	Ref       string `json:"ref" doc:"How prompts refer to the file: $AGENT_UPLOAD_DIR/<name>"`
+	Path      string `json:"path" doc:"Absolute path on the server"`
+	Size      int64  `json:"size"`
+	MediaType string `json:"mediaType"`
+	Kind      string `json:"kind" enum:"image,video,audio,pdf,text,file"`
 }

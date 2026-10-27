@@ -263,6 +263,10 @@ export type Response = {
 };
 
 export type SendBody = {
+    /**
+     * Names of uploaded files (from uploadFiles) to attach; the prompt lists them as $AGENT_UPLOAD_DIR/<name>
+     */
+    files?: Array<string>;
     text: string;
 };
 
@@ -311,6 +315,10 @@ export type Session = {
     settings: Settings;
     status: 'stopped' | 'starting' | 'idle' | 'busy' | 'waiting';
     title: string;
+    /**
+     * Where uploads are saved; the CLI sees it as $AGENT_UPLOAD_DIR
+     */
+    uploadDir: string;
 };
 
 export type Settings = {
@@ -364,6 +372,24 @@ export type ToolEvent = {
 
 export type UpdateSessionRequest = {
     title: string;
+};
+
+export type Upload = {
+    kind: 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'file';
+    mediaType: string;
+    /**
+     * File name in the upload directory; pass it in sendPrompt's files
+     */
+    name: string;
+    /**
+     * Absolute path on the server
+     */
+    path: string;
+    /**
+     * How prompts refer to the file: $AGENT_UPLOAD_DIR/<name>
+     */
+    ref: string;
+    size: number;
 };
 
 export type Workdir = {
@@ -1114,6 +1140,71 @@ export type TerminalInputResponses = {
 };
 
 export type TerminalInputResponse = TerminalInputResponses[keyof TerminalInputResponses];
+
+export type UploadFilesData = {
+    body?: {
+        files: Array<Blob | File>;
+    };
+    path: {
+        /**
+         * Session id
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/sessions/{id}/uploads';
+};
+
+export type UploadFilesErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type UploadFilesError = UploadFilesErrors[keyof UploadFilesErrors];
+
+export type UploadFilesResponses = {
+    /**
+     * Created
+     */
+    201: Array<Upload>;
+};
+
+export type UploadFilesResponse = UploadFilesResponses[keyof UploadFilesResponses];
+
+export type GetUploadData = {
+    body?: never;
+    path: {
+        /**
+         * Session id
+         */
+        id: string;
+        name: string;
+    };
+    query?: {
+        download?: boolean;
+    };
+    url: '/api/sessions/{id}/uploads/{name}';
+};
+
+export type GetUploadErrors = {
+    /**
+     * Error
+     */
+    default: ErrorModel;
+};
+
+export type GetUploadError = GetUploadErrors[keyof GetUploadErrors];
+
+export type GetUploadResponses = {
+    /**
+     * The file
+     */
+    200: Blob | File;
+};
+
+export type GetUploadResponse = GetUploadResponses[keyof GetUploadResponses];
 
 export type DeleteWorkdirData = {
     body?: never;
