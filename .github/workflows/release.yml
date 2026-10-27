@@ -1,0 +1,124 @@
+# Builds agent-web for Linux and macOS (amd64, arm64) when a tag is pushed
+# and attaches the archives to a GitHub release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag becomes the version shown by `agent-web --version` and in the web UI.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Regenerate the OpenAPI document and the API client
+        run: |
+          go generate ./...
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm gen:api
+      - name: Generated code is committed
+        run: git diff --exit-code -- openapi frontend/app/api
+      - name: Type-check and build the web UI
+        working-directory: frontend
+        run: |
+          pnpm typecheck
+          pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webui
+          path: frontend/.output/public
+          if-no-files-found: error
+
+  build:
+    needs: frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: webui
+          path: internal/webui/dist
+      - name: Test
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          # Pure Go (modernc.org/sqlite), so every target cross-compiles.
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          [ "${GITHUB_REF_TYPE}" = tag ] || VERSION="$(git describe --tags --always 2>/dev/null || echo dev)-${GITHUB_SHA::7}"
+          PKG=github.com/jclab-joseph/agent-web/internal/version
+          NAME="agent-web_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/${NAME}"
+          go build -trimpath \
+            -ldflags "-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${GITHUB_SHA::12} -X ${PKG}.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "dist/${NAME}/agent-web" ./cmd/agent-web
+          cp README.md LICENSE "dist/${NAME}/"
+          tar -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
+          echo "ARCHIVE=dist/${NAME}.tar.gz" >> "$GITHUB_ENV"
+      - name: Check the version
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: tar -xzOf "$ARCHIVE" --wildcards '*/agent-web' > /tmp/agent-web && chmod +x /tmp/agent-web && /tmp/agent-web --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-web-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: agent-web-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          generate_release_notes: true
