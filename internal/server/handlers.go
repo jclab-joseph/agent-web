@@ -284,10 +284,11 @@ func (s *Server) register() {
 	})
 
 	type sendBody struct {
-		Text string `json:"text" minLength:"1"`
+		Text  string   `json:"text"`
+		Files []string `json:"files,omitempty" doc:"Names of uploaded files (from uploadFiles) to attach; the prompt lists them as $AGENT_UPLOAD_DIR/<name>"`
 	}
 	sessionAction(s, "sendPrompt", "send", "Send a prompt (resumes the CLI if it was stopped)", func(ctx context.Context, sess *manager.Session, b sendBody) error {
-		return sess.Send(ctx, b.Text)
+		return sess.SendWithFiles(ctx, b.Text, b.Files)
 	})
 
 	type commandBody struct {
@@ -349,6 +350,7 @@ func (s *Server) register() {
 		})
 
 	s.registerFile()
+	s.registerUploads()
 	s.registerStreams()
 }
 

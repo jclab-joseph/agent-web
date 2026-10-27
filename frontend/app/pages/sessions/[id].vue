@@ -15,7 +15,29 @@ const loadingMore = ref(false)
 const notFound = ref(false)
 const tab = ref<'chat' | 'terminal'>('chat')
 const starting = ref(false)
-const composer = ref<{ focus(): void }>()
+const composer = ref<{ focus(): void; addFiles(files: FileList | File[]): void }>()
+
+// Files dropped anywhere on the chat are attached to the next prompt.
+const dragging = ref(false)
+let dragDepth = 0
+function hasFiles(e: DragEvent) {
+  return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+}
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth++
+  dragging.value = true
+}
+function onDragLeave(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dragging.value = false
+}
+function onDrop(e: DragEvent) {
+  dragDepth = 0
+  dragging.value = false
+  if (e.dataTransfer?.files.length) composer.value?.addFiles(e.dataTransfer.files)
+}
 
 let closeStream: (() => void) | null = null
 let replayedOnce = false
@@ -243,7 +265,18 @@ useHead(() => ({ title: title.value ? `${title.value} · agent-web` : 'agent-web
       </nav>
     </header>
 
-    <section v-show="tab === 'chat'" class="chat">
+    <section
+      v-show="tab === 'chat'"
+      class="chat"
+      @dragenter.prevent="onDragEnter"
+      @dragover.prevent
+      @dragleave="onDragLeave"
+      @drop.prevent="onDrop"
+    >
+      <div v-if="dragging" class="dropzone">
+        <span>Drop files to attach them</span>
+        <small class="mono">saved to {{ shortPath(session.uploadDir, info?.home) }}</small>
+      </div>
       <ChatLog :session-id="session.id" :events="events" :has-more="hasMore" :loading-more="loadingMore" class="log" @load-more="loadMore" />
       <div v-if="session.pending.length" class="requests">
         <RequestCard v-for="r in session.pending" :key="r.id" :session-id="session.id" :request="r" />
@@ -346,7 +379,28 @@ useHead(() => ({ title: title.value ? `${title.value} · agent-web` : 'agent-web
   border-bottom-color: var(--accent);
   color: var(--text);
 }
+.dropzone {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  pointer-events: none;
+}
+.dropzone small {
+  color: var(--text-2);
+  font-weight: 400;
+}
 .chat {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;

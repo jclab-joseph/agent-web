@@ -48,6 +48,7 @@ func main() {
 	idle := flag.Duration("idle-timeout", 5*time.Minute, "stop a CLI that has been idle this long (0 = never); the next request resumes it")
 	claudeBin := flag.String("claude", "claude", "claude executable")
 	codexBin := flag.String("codex", "codex", "codex executable")
+	uploadDir := flag.String("upload-dir", envOr("AGENT_WEB_UPLOAD_DIR", manager.DefaultUploadDir), "where uploaded files are saved, passed to the CLI as $AGENT_UPLOAD_DIR (${WORKDIR} = the session's working directory)")
 	driftDir := flag.String("drift-dir", "", "save screens where a Claude recognizer disagrees with the CLI")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -58,7 +59,7 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(log)
-	if err := run(log, *addr, *dataDir, *token, *idle, *claudeBin, *codexBin, *driftDir); err != nil {
+	if err := run(log, *addr, *dataDir, *token, *idle, *claudeBin, *codexBin, *driftDir, *uploadDir); err != nil {
 		log.Error(err.Error())
 		os.Exit(1)
 	}
@@ -71,7 +72,7 @@ func envOr(k, def string) string {
 	return def
 }
 
-func run(log *slog.Logger, addr, dataDir, token string, idle time.Duration, claudeBin, codexBin, driftDir string) error {
+func run(log *slog.Logger, addr, dataDir, token string, idle time.Duration, claudeBin, codexBin, driftDir, uploadDir string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -92,7 +93,7 @@ func run(log *slog.Logger, addr, dataDir, token string, idle time.Duration, clau
 	defer claudeP.Close()
 	ctx := context.Background()
 	m, err := manager.New(ctx, manager.Config{
-		Store: st, IdleTimeout: idle, DriftDir: driftDir, Logger: log,
+		Store: st, IdleTimeout: idle, DriftDir: driftDir, UploadDir: uploadDir, Logger: log,
 		Providers: map[string]bridge.Provider{
 			"claude": claudeP,
 			"codex":  codex.New(codex.Config{Executable: codexBin}),

@@ -13,6 +13,8 @@ and the rest keep working.
   prompt is never stopped.
 - **Working directories.** Pick a directory you used before, or type a new path with
   directory autocompletion. You can create the directory if it does not exist.
+- **File uploads.** Attach files with the paperclip button, by dropping them on the chat,
+  or by pasting images. See [Uploads](#uploads).
 - Chat with Markdown rendering, tool calls and results, thinking, and attachments.
 - Permission prompts and questions appear as cards.
 - Model, effort and mode can be changed at any time. While the CLI is stopped, the change
@@ -23,20 +25,45 @@ and the rest keep working.
 
 ## Install
 
-Download an archive for your platform from the
-[releases](https://github.com/jclab-joseph/agent-web/releases). Builds are available for
-`linux_amd64`, `linux_arm64`, `darwin_amd64` and `darwin_arm64`. The binary embeds the
-web UI.
-
 ```sh
-tar xzf agent-web_v0.1.0_linux_amd64.tar.gz
-./agent-web_v0.1.0_linux_amd64/agent-web --version
+curl -fsSL https://github.com/jclab-joseph/agent-web/releases/latest/download/install.sh | sh
 ```
 
-On macOS, remove the download quarantine first:
-`xattr -d com.apple.quarantine ./agent-web`.
+The installer detects Linux or macOS and amd64 or arm64. It downloads the release
+archive, checks it against `checksums.txt`, and puts the binary in `~/.local/bin`. Then
+it sets agent-web up to run in the background on `http://127.0.0.1:8787`:
 
-`claude` (and optionally `codex`) must be on `PATH` and logged in.
+| | Service | Starts | Logs |
+| --- | --- | --- | --- |
+| Linux | systemd user service `~/.config/systemd/user/agent-web.service` | at boot. Lingering is enabled with `loginctl enable-linger`, asking for sudo if needed. Without it, at login. | `journalctl --user -u agent-web -e` |
+| macOS | launchd agent `~/Library/LaunchAgents/io.github.jclab-joseph.agent-web.plist` | at login | `~/Library/Logs/agent-web.log` |
+
+The service runs as your user, not root, so sessions use your Claude Code and Codex
+login. It gets the `PATH` of the shell you ran the installer from, so it finds `claude`,
+`codex`, `node` and `git` the way you do. If you install those later or move them, rerun
+the installer. On macOS it starts at login rather than at boot because Claude Code keeps
+its credentials in your login keychain.
+
+The `install.sh` attached to each release installs that release. Pick a version, change
+the port, or skip the service with:
+
+```sh
+curl -fsSL https://github.com/jclab-joseph/agent-web/releases/download/v0.1.0/install.sh | sh
+curl -fsSL …/install.sh | sh -s -- --port 9000       # another port; reruns keep it
+curl -fsSL …/install.sh | sh -s -- --no-service      # binary only
+curl -fsSL …/install.sh | sh -s -- --uninstall       # remove the service and binary; keeps sessions
+```
+
+To upgrade, rerun the installer. It restarts the service, and open sessions resume with
+your next message. If another program already uses the port, the installer stops without
+changing anything.
+
+Manual install: download `agent-web_<version>_<os>_<arch>.tar.gz` from the
+[releases](https://github.com/jclab-joseph/agent-web/releases) and run the `agent-web`
+binary inside. It embeds the web UI. On macOS, a file downloaded with a browser needs
+`xattr -d com.apple.quarantine ./agent-web` first. The installer does not need this.
+
+`claude` (and optionally `codex`) must be installed and logged in.
 
 ## Run
 
@@ -52,6 +79,7 @@ agent-web --addr 0.0.0.0:8787 --token s3cret
 | `--data-dir` | `AGENT_WEB_DATA_DIR` | `~/.config/agent-web` (Linux), `~/Library/Application Support/agent-web` (macOS) | Holds `agent-web.db` |
 | `--idle-timeout` | | `5m` | Stop an idle CLI after this long. `0` never stops it. |
 | `--claude`, `--codex` | | `claude`, `codex` | CLI executables |
+| `--upload-dir` | `AGENT_WEB_UPLOAD_DIR` | `${WORKDIR}/.scratch/uploads` | Where uploads are saved. `${WORKDIR}` is the session's working directory. |
 | `--drift-dir` | | | Save screens where a Claude recognizer disagrees with the CLI |
 | `--version` | | | Print the version and exit |
 
@@ -61,6 +89,32 @@ whose `Host` is not a loopback name, which blocks DNS rebinding. It rejects ever
 cross-origin request that changes state. Files the agent sends are served with a
 sandboxing Content-Security-Policy. Use TLS (a reverse proxy) when you expose it beyond
 your machine.
+
+## Uploads
+
+Attached files are uploaded right away into the session's upload directory, which
+defaults to `<working directory>/.scratch/uploads/`. Each file is saved as
+`<name>.<ext>`, or `<name>-<n>.<ext>` if that name is taken. Whitespace and shell
+metacharacters in a name become `_`. When the directory is inside the working
+directory, agent-web puts a `.gitignore` there so uploads stay out of git.
+
+The CLI is started with `AGENT_UPLOAD_DIR=<that directory>`. A prompt with attachments
+ends with a list of references:
+
+```
+What is wrong in this screenshot?
+
+Attached files:
+- $AGENT_UPLOAD_DIR/screenshot.png
+```
+
+Claude's Read tool takes a literal path and does not expand variables. agent-web
+therefore appends a system prompt (`--append-system-prompt`) that tells Claude to run
+`echo $AGENT_UPLOAD_DIR` first and then Read the absolute path. That exact command is
+pre-approved (`--allowedTools "Bash(echo $AGENT_UPLOAD_DIR)"`), so it does not prompt
+for permission. An upload directory outside the working directory is also passed with
+`--add-dir`. Codex gets the environment variable but not the instructions; its shell
+commands expand `$AGENT_UPLOAD_DIR` themselves.
 
 ## Development
 
@@ -123,9 +177,11 @@ frontend/             Nuxt 4 SPA (TypeScript, pnpm)
 
 ## Release
 
-Push a tag. `.github/workflows/release.yml` then builds the UI once, cross-compiles the
-four targets with `CGO_ENABLED=0`, and attaches the archives and `checksums.txt` to a
-GitHub release:
+Push a tag. `.github/workflows/release.yml` then builds the UI once and cross-compiles
+the four targets with `CGO_ENABLED=0`. It attaches the archives, `checksums.txt` and
+`install.sh` to a GitHub release, with the tag written into `install.sh`. A tag with a
+pre-release suffix, such as `v0.1.0-rc.1`, makes a pre-release. `releases/latest`, and
+with it the default installer, stays on the last stable version.
 
 ```sh
 git tag v0.1.0

@@ -77,6 +77,7 @@ func (s *Session) summaryLocked() model.Session {
 		Status: model.StatusStopped, Resumable: r.HasConversation && r.CLISessionID != "",
 		Settings: model.Settings{Model: r.Model, Effort: r.Effort, Mode: r.Mode},
 		Options:  s.opts, Pending: []model.Request{}, CreatedAt: r.CreatedAt, LastActiveAt: s.lastActive, LastSeq: s.seq,
+		UploadDir: s.m.uploadDir(r.Cwd),
 	}
 	if s.run != nil {
 		bs := s.run.sess
@@ -180,6 +181,7 @@ func (s *Session) startLocked(ctx context.Context) (bridge.Session, error) {
 	}
 	so := bridge.SessionOptions{Cwd: rec.Cwd, Model: rec.Model, Effort: rec.Effort, Mode: rec.Mode,
 		Provider: s.m.providerOptions(rec.Provider, opts)}
+	s.m.uploadLaunch(&so, rec.Cwd)
 	resume := rec.HasConversation && rec.CLISessionID != ""
 	if resume {
 		so.Resume = rec.CLISessionID
@@ -316,6 +318,17 @@ func (s *Session) handle(r *run, ev bridge.Event) {
 }
 
 func titleFrom(text string) string {
+	// Leave out the list of attached files; name the first one if that is all.
+	if i := strings.LastIndex(text, attachedHeader); i >= 0 {
+		files := text[i+len(attachedHeader):]
+		if text = strings.TrimSpace(text[:i]); text == "" {
+			if j := strings.Index(files, "$"+UploadEnv+"/"); j >= 0 {
+				if f := strings.Fields(files[j+len(UploadEnv)+2:]); len(f) > 0 {
+					text = f[0]
+				}
+			}
+		}
+	}
 	text = strings.Join(strings.Fields(text), " ")
 	if utf8.RuneCountInString(text) > 80 {
 		text = string([]rune(text)[:80]) + "…"
