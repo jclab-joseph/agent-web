@@ -148,6 +148,10 @@ type CreateOptions struct {
 	Effort    string
 	Mode      string
 	Options   model.LaunchOptions
+	// ResumeID attaches the session to an existing CLI conversation (a
+	// Claude session id or a Codex session id): the CLI starts with
+	// --resume. An empty Cwd then means the conversation's own directory.
+	ResumeID string
 }
 
 // NormalizeDir expands ~ and makes path absolute and clean.
@@ -175,9 +179,31 @@ func (m *Manager) Create(ctx context.Context, o CreateOptions) (*Session, error)
 	if _, ok := m.cfg.Providers[o.Provider]; !ok {
 		return nil, fmt.Errorf("%w: unknown provider %q", ErrInvalid, o.Provider)
 	}
+	resumeID := strings.TrimSpace(o.ResumeID)
+	var conv conversation
+	if resumeID != "" {
+		var err error
+		if conv, err = findConversation(o.Provider, resumeID); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(o.Cwd) == "" {
+			if conv.Cwd == "" {
+				return nil, fmt.Errorf("%w: conversation %s does not record its working directory; enter it", ErrInvalid, resumeID)
+			}
+			o.Cwd = conv.Cwd
+		}
+		if other := m.attachedTo(o.Provider, resumeID); other != nil {
+			return nil, fmt.Errorf("%w: conversation %s is already open here as session %q", ErrInvalid, resumeID, other.Summary().Title)
+		}
+	}
 	cwd, err := NormalizeDir(o.Cwd)
 	if err != nil {
 		return nil, err
+	}
+	// Claude looks up --resume ids in the project folder of the working
+	// directory, so the conversation only resumes from its own directory.
+	if resumeID != "" && o.Provider == "claude" && conv.Cwd != "" && filepath.Clean(conv.Cwd) != cwd {
+		return nil, fmt.Errorf("%w: conversation %s belongs to %s; use that working directory", ErrInvalid, resumeID, conv.Cwd)
 	}
 	fi, err := os.Stat(cwd)
 	switch {
@@ -197,6 +223,9 @@ func (m *Manager) Create(ctx context.Context, o CreateOptions) (*Session, error)
 		Model: o.Model, Effort: o.Effort, Mode: o.Mode, Options: string(opts),
 		CreatedAt: now, UpdatedAt: now, LastActiveAt: now,
 	}
+	if resumeID != "" {
+		rec.CLISessionID, rec.HasConversation = resumeID, true
+	}
 	if err := m.cfg.Store.CreateSession(ctx, rec); err != nil {
 		return nil, err
 	}
@@ -215,6 +244,17 @@ func (m *Manager) Create(ctx context.Context, o CreateOptions) (*Session, error)
 	m.sessions[rec.ID] = s
 	m.mu.Unlock()
 	return s, nil
+}
+
+// attachedTo returns the session already attached to a CLI conversation.
+func (m *Manager) attachedTo(provider, cliSessionID string) *Session {
+	for _, s := range m.all() {
+		sum := s.Summary()
+		if sum.Provider == provider && sum.CLISessionID == cliSessionID {
+			return s
+		}
+	}
+	return nil
 }
 
 // Delete stops the CLI and removes the session and its history. The CLI's

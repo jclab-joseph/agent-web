@@ -92,8 +92,7 @@ components:
           description: Create the directory if it does not exist
           type: boolean
         cwd:
-          description: Working directory (absolute, or ~/...)
-          minLength: 1
+          description: "Working directory (absolute, or ~/...). May be empty with resumeId: the conversation's own directory is used."
           type: string
         effort:
           type: string
@@ -108,11 +107,14 @@ components:
             - claude
             - codex
           type: string
+        resumeId:
+          description: Attach to an existing CLI conversation (Claude or Codex session id); the CLI starts with --resume
+          maxLength: 128
+          type: string
         title:
           type: string
       required:
         - provider
-        - cwd
       type: object
     DirEntry:
       additionalProperties: false

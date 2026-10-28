@@ -14,6 +14,7 @@ const form = reactive({
   effort: '',
   mode: '',
   createDir: false,
+  resumeId: '',
   options: {
     trustWorkspace: false,
     remoteControl: 'default',
@@ -64,6 +65,7 @@ watch(
     form.cwd = state.value.cwd
     form.title = ''
     form.createDir = false
+    form.resumeId = ''
     dialog.value?.showModal()
   },
 )
@@ -77,14 +79,21 @@ watch(
   },
 )
 
+const resuming = computed(() => form.resumeId.trim() !== '')
+const canStart = computed(() => form.cwd.trim() !== '' || resuming.value)
+
 async function submit() {
+  // With a resume id and no directory, the server uses the conversation's.
+  const checkDir = form.cwd.trim() !== ''
   // The picker checks as you type; check again in case it is behind.
-  try {
-    exists.value = (await listDirs({ query: { path: form.cwd } })).data.exists
-  } catch {
-    // the server validates anyway
+  if (checkDir) {
+    try {
+      exists.value = (await listDirs({ query: { path: form.cwd } })).data.exists
+    } catch {
+      // the server validates anyway
+    }
   }
-  if (exists.value === false && !form.createDir) {
+  if (checkDir && exists.value === false && !form.createDir) {
     toast('The directory does not exist. Tick "Create it" or pick another one.', 'error')
     return
   }
@@ -102,8 +111,9 @@ async function submit() {
     const { data } = await createSession({
       body: {
         provider: form.provider as 'claude' | 'codex',
-        cwd: form.cwd,
+        cwd: form.cwd.trim() || undefined,
         createDir: form.createDir,
+        resumeId: form.resumeId.trim() || undefined,
         title: form.title || undefined,
         model: form.model || undefined,
         effort: form.effort || undefined,
@@ -180,9 +190,24 @@ async function submit() {
         <input id="ns-title" v-model="form.title" class="input" maxlength="200" />
       </div>
 
-      <details class="adv">
+      <details class="adv" :open="resuming || undefined">
         <summary>Advanced</summary>
         <div class="adv-body">
+          <div class="field">
+            <label for="ns-resume">Resume session ID</label>
+            <input
+              id="ns-resume"
+              v-model="form.resumeId"
+              class="input mono"
+              placeholder="Continue an existing conversation (optional)"
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <p class="hint">
+              The CLI's own session ID (Claude: <code>/status</code> or <code>claude --resume</code>; Codex:
+              <code>codex resume</code>). Leave the working directory empty to use the conversation's.
+            </p>
+          </div>
           <label class="check">
             <input v-model="form.options.trustWorkspace" type="checkbox" />
             <span>Trust the workspace automatically <span class="hint">(otherwise the trust prompt is shown here)</span></span>
@@ -231,8 +256,8 @@ async function submit() {
 
       <footer>
         <button type="button" class="btn" @click="close()">Cancel</button>
-        <button class="btn primary" :disabled="busy || !form.cwd.trim() || !providers.length">
-          {{ busy ? 'Starting…' : 'Start session' }}
+        <button class="btn primary" :disabled="busy || !canStart || !providers.length">
+          {{ busy ? 'Starting…' : resuming ? 'Resume session' : 'Start session' }}
         </button>
       </footer>
     </form>

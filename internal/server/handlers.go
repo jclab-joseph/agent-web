@@ -218,13 +218,14 @@ func (s *Server) register() {
 
 	type createBody struct {
 		Provider  string              `json:"provider" enum:"claude,codex"`
-		Cwd       string              `json:"cwd" minLength:"1" doc:"Working directory (absolute, or ~/...)"`
+		Cwd       string              `json:"cwd,omitempty" doc:"Working directory (absolute, or ~/...). May be empty with resumeId: the conversation's own directory is used."`
 		CreateDir bool                `json:"createDir,omitempty" doc:"Create the directory if it does not exist"`
 		Title     string              `json:"title,omitempty"`
 		Model     string              `json:"model,omitempty"`
 		Effort    string              `json:"effort,omitempty"`
 		Mode      string              `json:"mode,omitempty"`
 		Options   model.LaunchOptions `json:"options,omitempty"`
+		ResumeID  string              `json:"resumeId,omitempty" maxLength:"128" doc:"Attach to an existing CLI conversation (Claude or Codex session id); the CLI starts with --resume"`
 	}
 	huma.Register(api, huma.Operation{OperationID: "createSession", Method: http.MethodPost, Path: "/api/sessions", Tags: tagsSess,
 		Summary: "Create a session and start its CLI", DefaultStatus: http.StatusCreated},
@@ -233,7 +234,7 @@ func (s *Server) register() {
 			defer cancel()
 			b := in.Body
 			sess, err := s.m.Create(ctx, manager.CreateOptions{Provider: b.Provider, Cwd: b.Cwd, CreateDir: b.CreateDir, Title: b.Title,
-				Model: b.Model, Effort: b.Effort, Mode: b.Mode, Options: b.Options})
+				Model: b.Model, Effort: b.Effort, Mode: b.Mode, Options: b.Options, ResumeID: b.ResumeID})
 			if err != nil {
 				return nil, apiError(err)
 			}

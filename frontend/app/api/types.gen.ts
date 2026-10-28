@@ -50,14 +50,18 @@ export type CreateBody = {
      */
     createDir?: boolean;
     /**
-     * Working directory (absolute, or ~/...)
+     * Working directory (absolute, or ~/...). May be empty with resumeId: the conversation's own directory is used.
      */
-    cwd: string;
+    cwd?: string;
     effort?: string;
     mode?: string;
     model?: string;
     options?: LaunchOptions;
     provider: 'claude' | 'codex';
+    /**
+     * Attach to an existing CLI conversation (Claude or Codex session id); the CLI starts with --resume
+     */
+    resumeId?: string;
     title?: string;
 };
 
