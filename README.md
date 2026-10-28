@@ -25,20 +25,45 @@ and the rest keep working.
 
 ## Install
 
-Download an archive for your platform from the
-[releases](https://github.com/jclab-joseph/agent-web/releases). Builds are available for
-`linux_amd64`, `linux_arm64`, `darwin_amd64` and `darwin_arm64`. The binary embeds the
-web UI.
-
 ```sh
-tar xzf agent-web_v0.1.0_linux_amd64.tar.gz
-./agent-web_v0.1.0_linux_amd64/agent-web --version
+curl -fsSL https://github.com/jclab-joseph/agent-web/releases/latest/download/install.sh | sh
 ```
 
-On macOS, remove the download quarantine first:
-`xattr -d com.apple.quarantine ./agent-web`.
+The installer detects Linux or macOS and amd64 or arm64. It downloads the release
+archive, checks it against `checksums.txt`, and puts the binary in `~/.local/bin`. Then
+it sets agent-web up to run in the background on `http://127.0.0.1:8787`:
 
-`claude` (and optionally `codex`) must be on `PATH` and logged in.
+| | Service | Starts | Logs |
+| --- | --- | --- | --- |
+| Linux | systemd user service `~/.config/systemd/user/agent-web.service` | at boot. Lingering is enabled with `loginctl enable-linger`, asking for sudo if needed. Without it, at login. | `journalctl --user -u agent-web -e` |
+| macOS | launchd agent `~/Library/LaunchAgents/io.github.jclab-joseph.agent-web.plist` | at login | `~/Library/Logs/agent-web.log` |
+
+The service runs as your user, not root, so sessions use your Claude Code and Codex
+login. It gets the `PATH` of the shell you ran the installer from, so it finds `claude`,
+`codex`, `node` and `git` the way you do. If you install those later or move them, rerun
+the installer. On macOS it starts at login rather than at boot because Claude Code keeps
+its credentials in your login keychain.
+
+The `install.sh` attached to each release installs that release. Pick a version, change
+the port, or skip the service with:
+
+```sh
+curl -fsSL https://github.com/jclab-joseph/agent-web/releases/download/v0.1.0/install.sh | sh
+curl -fsSL …/install.sh | sh -s -- --port 9000       # another port; reruns keep it
+curl -fsSL …/install.sh | sh -s -- --no-service      # binary only
+curl -fsSL …/install.sh | sh -s -- --uninstall       # remove the service and binary; keeps sessions
+```
+
+To upgrade, rerun the installer. It restarts the service, and open sessions resume with
+your next message. If another program already uses the port, the installer stops without
+changing anything.
+
+Manual install: download `agent-web_<version>_<os>_<arch>.tar.gz` from the
+[releases](https://github.com/jclab-joseph/agent-web/releases) and run the `agent-web`
+binary inside. It embeds the web UI. On macOS, a file downloaded with a browser needs
+`xattr -d com.apple.quarantine ./agent-web` first. The installer does not need this.
+
+`claude` (and optionally `codex`) must be installed and logged in.
 
 ## Run
 
@@ -152,10 +177,11 @@ frontend/             Nuxt 4 SPA (TypeScript, pnpm)
 
 ## Release
 
-Push a tag. `.github/workflows/release.yml` then builds the UI once, cross-compiles the
-four targets with `CGO_ENABLED=0`, and attaches the archives and `checksums.txt` to a
-GitHub release. A tag with a pre-release suffix, such as `v0.1.0-rc.1`, makes a
-pre-release, so `releases/latest` stays on the last stable version.
+Push a tag. `.github/workflows/release.yml` then builds the UI once and cross-compiles
+the four targets with `CGO_ENABLED=0`. It attaches the archives, `checksums.txt` and
+`install.sh` to a GitHub release, with the tag written into `install.sh`. A tag with a
+pre-release suffix, such as `v0.1.0-rc.1`, makes a pre-release. `releases/latest`, and
+with it the default installer, stays on the last stable version.
 
 ```sh
 git tag v0.1.0

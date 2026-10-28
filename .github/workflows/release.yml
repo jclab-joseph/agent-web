@@ -4,6 +4,7 @@
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # The tag becomes the version shown by `agent-web --version` and in the web UI.
+# The release also carries install.sh with that version filled in.
 name: release
 
 on:
@@ -108,6 +109,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: agent-web-*
@@ -116,11 +118,18 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum *.tar.gz > checksums.txt
+      # The attached install.sh installs this release.
+      - name: Installer
+        run: |
+          # Only the assignment: the script compares against the placeholder.
+          sed "s/^RELEASE_VERSION=\"@VERSION@\"\$/RELEASE_VERSION=\"${GITHUB_REF_NAME}\"/" install.sh > dist/install.sh
+          sh dist/install.sh --help 2>&1 | grep -F "(default: ${GITHUB_REF_NAME})"
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/checksums.txt
+            dist/install.sh
           generate_release_notes: true
           # v1.2.3-rc.1, v1.2.3-beta… (any tag with a pre-release suffix)
           prerelease: ${{ contains(github.ref_name, '-') }}
