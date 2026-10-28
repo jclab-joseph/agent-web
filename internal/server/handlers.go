@@ -34,10 +34,13 @@ func actionCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 // ServerInfo describes the server.
 type ServerInfo struct {
 	Version            version.BuildInfo `json:"version"`
-	AuthRequired       bool              `json:"authRequired"`
+	AuthRequired       bool              `json:"authRequired" doc:"An access token is required (log in with login)"`
+	CloudflareAccess   bool              `json:"cloudflareAccess" doc:"Requests must come through Cloudflare Access"`
 	Authenticated      bool              `json:"authenticated"`
+	Missing            string            `json:"missing,omitempty" enum:"cloudflare,token" doc:"The authentication that is missing, if any"`
+	User               string            `json:"user,omitempty" doc:"The Cloudflare Access user"`
 	IdleTimeoutSeconds int               `json:"idleTimeoutSeconds" doc:"Idle CLIs are stopped after this long; 0 = never"`
-	Home               string            `json:"home" doc:"The server user's home directory"`
+	Home               string            `json:"home" doc:"The server user's home directory (empty before authenticating)"`
 }
 
 // Choice is one selectable value.
@@ -95,18 +98,18 @@ func (s *Server) register() {
 	tagsSess := []string{"sessions"}
 
 	huma.Register(api, huma.Operation{OperationID: "getInfo", Method: http.MethodGet, Path: "/api/info", Tags: tagsSys,
-		Summary: "Server version and settings"},
-		func(ctx context.Context, in *struct {
-			Cookie string `cookie:"agent_web_session"`
-		}) (*struct{ Body ServerInfo }, error) {
-			home, _ := os.UserHomeDir()
-			out := &struct{ Body ServerInfo }{Body: ServerInfo{Version: version.Get(), AuthRequired: s.opts.Token != "", Home: home}}
-			out.Body.Authenticated = s.opts.Token == "" ||
-				subtle.ConstantTimeCompare([]byte(in.Cookie), []byte(tokenCookieValue(s.opts.Token))) == 1
-			if s.m != nil {
-				out.Body.IdleTimeoutSeconds = int(s.m.IdleTimeout() / time.Second)
+		Summary: "Server version and how to authenticate", Description: "Public: the UI calls it before logging in."},
+		func(ctx context.Context, in *struct{}) (*struct{ Body ServerInfo }, error) {
+			a := authFrom(ctx)
+			info := ServerInfo{Version: version.Get(), AuthRequired: s.opts.Token != "", CloudflareAccess: s.opts.Cloudflare != nil,
+				Authenticated: a.ok(), Missing: a.Missing, User: a.User}
+			if a.ok() {
+				info.Home, _ = os.UserHomeDir()
+				if s.m != nil {
+					info.IdleTimeoutSeconds = int(s.m.IdleTimeout() / time.Second)
+				}
 			}
-			return out, nil
+			return &struct{ Body ServerInfo }{Body: info}, nil
 		})
 
 	type cookieOutput struct {

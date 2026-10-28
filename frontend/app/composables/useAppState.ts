@@ -10,7 +10,7 @@ export async function loadServerInfo() {
   const info = useServerInfo()
   const { data } = await getInfo()
   info.value = data
-  if (data.authRequired && !data.authenticated) useAuth().value.needLogin = true
+  useAuth().value.needLogin = !data.authenticated
   return data
 }
 

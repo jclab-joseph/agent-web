@@ -4,14 +4,9 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"io/fs"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -19,6 +14,7 @@ import (
 
 	bridge "github.com/jclab-joseph/clicodebridge"
 
+	"github.com/jclab-joseph/agent-web/internal/cfaccess"
 	"github.com/jclab-joseph/agent-web/internal/manager"
 	"github.com/jclab-joseph/agent-web/internal/store"
 	"github.com/jclab-joseph/agent-web/internal/version"
@@ -36,6 +32,14 @@ const cookieName = "agent_web_session"
 type Options struct {
 	// Token, when set, is required to use the API.
 	Token string
+	// Cloudflare, when set, requires a valid Cloudflare Access token.
+	Cloudflare *cfaccess.Verifier
+	// AllowedHosts are Host names (exact, or "*.example.com") accepted
+	// besides loopback names. When set, other hosts are rejected even with
+	// authentication configured.
+	AllowedHosts []string
+	// AllowAnyHost turns the Host check off.
+	AllowAnyHost bool
 	// Static serves the web UI; nil serves nothing besides the API.
 	Static fs.FS
 }
@@ -71,64 +75,6 @@ func New(m *manager.Manager, opts Options) *Server {
 func (s *Server) API() huma.API { return s.api }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
-
-// --- access control ---------------------------------------------------------------
-
-func tokenCookieValue(token string) string {
-	sum := sha256.Sum256([]byte("agent-web:" + token))
-	return hex.EncodeToString(sum[:])
-}
-
-func (s *Server) authenticated(r *http.Request) bool {
-	if s.opts.Token == "" {
-		return true
-	}
-	c, err := r.Cookie(cookieName)
-	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(tokenCookieValue(s.opts.Token))) == 1
-}
-
-// publicAPI are the API paths usable before logging in.
-var publicAPI = map[string]bool{"/api/info": true, "/api/auth/login": true, "/api/auth/logout": true}
-
-// guard applies the access rules. Sessions run with the user's permissions,
-// so besides the token it blocks DNS rebinding (an unknown Host when no
-// token protects a loopback server) and cross-site requests.
-func (s *Server) guard(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.Token == "" && !loopbackHost(r.Host) {
-			http.Error(w, "forbidden host; set a token to serve other hosts", http.StatusForbidden)
-			return
-		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if o := r.Header.Get("Origin"); o != "" {
-				if u, err := url.Parse(o); err != nil || u.Host != r.Host {
-					http.Error(w, "cross-origin request rejected", http.StatusForbidden)
-					return
-				}
-			}
-		}
-		if strings.HasPrefix(r.URL.Path, "/api/") && !publicAPI[r.URL.Path] && !s.authenticated(r) {
-			w.Header().Set("Content-Type", "application/problem+json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"title":"Unauthorized","status":401,"detail":"log in with the access token"}`))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func loopbackHost(hostport string) bool {
-	host := hostport
-	if h, _, err := net.SplitHostPort(hostport); err == nil {
-		host = h
-	}
-	host = strings.Trim(host, "[]")
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
 
 // --- static UI ----------------------------------------------------------------------
 

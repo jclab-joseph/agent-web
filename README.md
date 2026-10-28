@@ -52,7 +52,17 @@ curl -fsSL https://github.com/jclab-joseph/agent-web/releases/download/v0.1.0/in
 curl -fsSL …/install.sh | sh -s -- --port 9000       # another port; reruns keep it
 curl -fsSL …/install.sh | sh -s -- --no-service      # binary only
 curl -fsSL …/install.sh | sh -s -- --uninstall       # remove the service and binary; keeps sessions
+
+# behind Cloudflare Access (e.g. cloudflared → http://127.0.0.1:8787)
+curl -fsSL …/install.sh | sh -s -- --cloudflare-team myteam --cloudflare-aud <AUD tag>
+# behind another proxy that sends its own Host name
+curl -fsSL …/install.sh | sh -s -- --allowed-hosts agent.example.com
 ```
+
+The access options (`--allowed-hosts`, `--allowed-any-host`, `--cloudflare-aud`,
+`--cloudflare-team`) become environment variables of the service. A rerun keeps them
+unless you pass them again. An empty value (`--allowed-hosts ""`, `--cloudflare-aud ""`)
+or `--no-allowed-any-host` clears one.
 
 To upgrade, rerun the installer. It restarts the service, and open sessions resume with
 your next message. If another program already uses the port, the installer stops without
@@ -80,15 +90,41 @@ agent-web --addr 0.0.0.0:8787 --token s3cret
 | `--idle-timeout` | | `5m` | Stop an idle CLI after this long. `0` never stops it. |
 | `--claude`, `--codex` | | `claude`, `codex` | CLI executables |
 | `--upload-dir` | `AGENT_WEB_UPLOAD_DIR` | `${WORKDIR}/.scratch/uploads` | Where uploads are saved. `${WORKDIR}` is the session's working directory. |
+| `--allowed-hosts` | `AGENT_WEB_ALLOWED_HOSTS` | | Comma-separated Host names to accept besides localhost: exact names or `*.example.com` |
+| `--allowed-any-host` | `AGENT_WEB_ALLOWED_ANY_HOST` | | Accept any Host name |
+| `--cloudflare-aud` | `AGENT_WEB_CLOUDFLARE_AUD` | | Require Cloudflare Access: the application's AUD tag |
+| `--cloudflare-team` | `AGENT_WEB_CLOUDFLARE_TEAM` | | The Access team (`myteam` or `myteam.cloudflareaccess.com`). Required with `--cloudflare-aud`. |
 | `--drift-dir` | | | Save screens where a Claude recognizer disagrees with the CLI |
 | `--version` | | | Print the version and exit |
 
-**Security.** Sessions run with your user's permissions, so agent-web refuses to listen
-on a non-loopback address without a token. Without a token it also rejects requests
-whose `Host` is not a loopback name, which blocks DNS rebinding. It rejects every
-cross-origin request that changes state. Files the agent sends are served with a
-sandboxing Content-Security-Policy. Use TLS (a reverse proxy) when you expose it beyond
-your machine.
+### Access control
+
+Sessions run commands with your user's permissions, so every request goes through three
+checks:
+
+1. **Host name.** `localhost` and loopback addresses are always accepted.
+   - Other names are accepted if they are in `--allowed-hosts`.
+   - Without `--allowed-hosts`, any name is accepted once authentication is configured.
+   - Without authentication, other names are rejected with `forbidden host …`. This
+     blocks DNS rebinding, where a web page reaches your loopback server under its own
+     domain.
+   - `--allowed-any-host` turns this check off. Use it only behind a proxy that
+     authenticates.
+2. **Origin.** A request from another site that changes state is rejected.
+3. **Authentication.** Every method you configure must pass:
+   - **Token** (`--token`): the UI asks for it once, then keeps an HttpOnly cookie.
+   - **Cloudflare Access** (`--cloudflare-aud`, `--cloudflare-team`): each request must
+     carry the JWT that Access adds (`Cf-Access-Jwt-Assertion`, or the
+     `CF_Authorization` cookie). The JWT must be signed with the team's keys
+     (`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`), be issued by that
+     team, be unexpired, and name this AUD tag. The team is required because the AUD
+     alone does not say whose keys to trust. The signed-in email appears in the
+     sidebar, and **Log out** ends the Access session. Find the AUD tag in Zero Trust →
+     Access → Applications → your app → Overview.
+
+agent-web refuses to listen on a non-loopback address without a token or Cloudflare
+Access. Files the agent sends are served with a sandboxing Content-Security-Policy. Use
+TLS (a reverse proxy, a Cloudflare Tunnel) when you expose agent-web beyond your machine.
 
 ## Uploads
 
