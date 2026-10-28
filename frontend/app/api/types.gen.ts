@@ -275,16 +275,31 @@ export type SendBody = {
 };
 
 export type ServerInfo = {
+    /**
+     * An access token is required (log in with login)
+     */
     authRequired: boolean;
     authenticated: boolean;
     /**
-     * The server user's home directory
+     * Requests must come through Cloudflare Access
+     */
+    cloudflareAccess: boolean;
+    /**
+     * The server user's home directory (empty before authenticating)
      */
     home: string;
     /**
      * Idle CLIs are stopped after this long; 0 = never
      */
     idleTimeoutSeconds: number;
+    /**
+     * The authentication that is missing, if any
+     */
+    missing?: 'cloudflare' | 'token';
+    /**
+     * The Cloudflare Access user
+     */
+    user?: string;
     version: BuildInfo;
 };
 

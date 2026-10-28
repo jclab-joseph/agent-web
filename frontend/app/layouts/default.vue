@@ -34,8 +34,12 @@ async function doLogout() {
       </header>
       <SessionList />
       <footer class="side-foot">
-        <VersionTag />
-        <button v-if="info?.authRequired" class="btn ghost sm" @click="doLogout">Log out</button>
+        <div class="who">
+          <VersionTag />
+          <span v-if="info?.user" class="user truncate" :title="`Signed in through Cloudflare Access as ${info.user}`">{{ info.user }}</span>
+        </div>
+        <a v-if="info?.cloudflareAccess" class="btn ghost sm" href="/cdn-cgi/access/logout">Log out</a>
+        <button v-else-if="info?.authRequired" class="btn ghost sm" @click="doLogout">Log out</button>
       </footer>
     </aside>
     <main class="main">
@@ -83,6 +87,15 @@ async function doLogout() {
   padding: 8px 12px 8px 14px;
   border-top: 1px solid var(--border);
   min-height: 42px;
+}
+.who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.user {
+  font-size: 11.5px;
+  color: var(--text-2);
 }
 .main {
   min-width: 0;

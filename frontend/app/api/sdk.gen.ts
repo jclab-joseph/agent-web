@@ -43,7 +43,9 @@ export const logout = <ThrowOnError extends boolean = true>(options?: Options<Lo
 export const listDirs = <ThrowOnError extends boolean = true>(options?: Options<ListDirsData, ThrowOnError>): RequestResult<ListDirsResponses, ListDirsErrors, ThrowOnError> => (options?.client ?? client).get<ListDirsResponses, ListDirsErrors, ThrowOnError>({ url: '/api/fs/dirs', ...options });
 
 /**
- * Server version and settings
+ * Server version and how to authenticate
+ *
+ * Public: the UI calls it before logging in.
  */
 export const getInfo = <ThrowOnError extends boolean = true>(options?: Options<GetInfoData, ThrowOnError>): RequestResult<GetInfoResponses, GetInfoErrors, ThrowOnError> => (options?.client ?? client).get<GetInfoResponses, GetInfoErrors, ThrowOnError>({ url: '/api/info', ...options });
 

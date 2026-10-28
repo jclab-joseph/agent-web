@@ -493,21 +493,35 @@ components:
       additionalProperties: false
       properties:
         authRequired:
+          description: An access token is required (log in with login)
           type: boolean
         authenticated:
           type: boolean
+        cloudflareAccess:
+          description: Requests must come through Cloudflare Access
+          type: boolean
         home:
-          description: The server user's home directory
+          description: The server user's home directory (empty before authenticating)
           type: string
         idleTimeoutSeconds:
           description: Idle CLIs are stopped after this long; 0 = never
           format: int64
           type: integer
+        missing:
+          description: The authentication that is missing, if any
+          enum:
+            - cloudflare
+            - token
+          type: string
+        user:
+          description: The Cloudflare Access user
+          type: string
         version:
           $ref: "#/components/schemas/BuildInfo"
       required:
         - version
         - authRequired
+        - cloudflareAccess
         - authenticated
         - idleTimeoutSeconds
         - home
@@ -815,12 +829,8 @@ paths:
         - system
   /api/info:
     get:
+      description: "Public: the UI calls it before logging in."
       operationId: getInfo
-      parameters:
-        - in: cookie
-          name: agent_web_session
-          schema:
-            type: string
       responses:
         "200":
           content:
@@ -834,7 +844,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
-      summary: Server version and settings
+      summary: Server version and how to authenticate
       tags:
         - system
   /api/providers:

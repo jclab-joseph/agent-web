@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { login } from '~/api'
 
+const info = useServerInfo()
+const viaCloudflare = computed(() => info.value?.missing === 'cloudflare')
 const token = ref('')
 const busy = ref(false)
 const error = ref('')
+
+// A 401 during use shows this form; ask again what is missing.
+onMounted(() => loadServerInfo().catch(() => {}))
+
+function reload() {
+  location.reload()
+}
 
 async function submit() {
   busy.value = true
@@ -22,7 +31,16 @@ async function submit() {
 
 <template>
   <div class="login">
-    <form class="card" @submit.prevent="submit">
+    <div v-if="viaCloudflare" class="card">
+      <h1>agent-web</h1>
+      <p class="muted">
+        This server only accepts requests that come through Cloudflare Access. Open it at its Cloudflare address and sign
+        in; if you already did, your Access session may have expired.
+      </p>
+      <button class="btn primary" @click="reload">Reload</button>
+      <VersionTag />
+    </div>
+    <form v-else class="card" @submit.prevent="submit">
       <h1>agent-web</h1>
       <p class="muted">This server requires an access token.</p>
       <div class="field">

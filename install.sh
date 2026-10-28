@@ -42,11 +42,20 @@ Options:
   --port <port>     Port on 127.0.0.1 (default: ${DEFAULT_PORT}, or the port of an existing install)
   --bin-dir <dir>   Where to put the binary (default: ~/.local/bin)
   --no-service      Only install the binary; do not start it at boot
+  --allowed-hosts <h1,h2>   Also accept these Host names, e.g. agent.example.com,*.example.net
+  --allowed-any-host        Accept any Host name (only behind a proxy that authenticates)
+  --no-allowed-any-host     Undo --allowed-any-host
+  --cloudflare-aud <aud>    Require Cloudflare Access: the application's AUD tag
+  --cloudflare-team <team>  Cloudflare Access team domain (myteam or myteam.cloudflareaccess.com)
   --uninstall       Stop and remove the service and the binary (keeps your sessions)
   -h, --help        Show this help
 
-Environment: AGENT_WEB_VERSION, AGENT_WEB_PORT, AGENT_WEB_BIN_DIR work like the options.
-AGENT_WEB_DOWNLOAD_BASE downloads the release files from a mirror instead of GitHub.
+Environment: AGENT_WEB_VERSION, AGENT_WEB_PORT, AGENT_WEB_BIN_DIR, AGENT_WEB_ALLOWED_HOSTS,
+AGENT_WEB_ALLOWED_ANY_HOST, AGENT_WEB_CLOUDFLARE_AUD and AGENT_WEB_CLOUDFLARE_TEAM work like
+the options. AGENT_WEB_DOWNLOAD_BASE downloads the release files from a mirror instead of GitHub.
+
+Access settings are kept when you rerun the installer without them; pass an empty
+value (--allowed-hosts "") to clear one.
 EOF
 }
 
@@ -201,6 +210,75 @@ previous_port() {
 	sed -n 's/.*127\.0\.0\.1:\([0-9][0-9]*\).*/\1/p' "$f" | head -n 1
 }
 
+# --- access settings ------------------------------------------------------------------
+
+# The access settings are environment variables of the service, named as
+# agent-web reads them.
+ACCESS_VARS="AGENT_WEB_ALLOWED_HOSTS AGENT_WEB_ALLOWED_ANY_HOST AGENT_WEB_CLOUDFLARE_AUD AGENT_WEB_CLOUDFLARE_TEAM"
+
+# set_access records a value given on the command line or in the environment.
+set_access() { # var value
+	case "$2" in
+	*[!A-Za-z0-9.*,:/_-]*) die "invalid value for $1: $2" ;;
+	esac
+	eval "ACC_$1=\$2; ACCSET_$1=1"
+}
+
+# resolve_access fills in the settings not given from the previous install,
+# read with "$1 VAR", and checks that they fit together.
+resolve_access() { # reader
+	for v in $ACCESS_VARS; do
+		if [ -z "$(eval "printf '%s' \"\${ACCSET_$v:-}\"")" ]; then
+			eval "ACC_$v=\$($1 $v)"
+		fi
+	done
+	# Clearing the AUD turns Cloudflare Access off, team included.
+	if [ -n "${ACCSET_AGENT_WEB_CLOUDFLARE_AUD:-}" ] && [ -z "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ] &&
+		[ -z "${ACCSET_AGENT_WEB_CLOUDFLARE_TEAM:-}" ]; then
+		ACC_AGENT_WEB_CLOUDFLARE_TEAM=""
+	fi
+	case "$ACC_AGENT_WEB_ALLOWED_ANY_HOST" in
+	1 | true) ACC_AGENT_WEB_ALLOWED_ANY_HOST=true ;;
+	*) ACC_AGENT_WEB_ALLOWED_ANY_HOST="" ;;
+	esac
+	if [ -n "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ] && [ -z "$ACC_AGENT_WEB_CLOUDFLARE_TEAM" ]; then
+		die "--cloudflare-aud needs --cloudflare-team (the team domain that signs the Access tokens)"
+	fi
+	if [ -z "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ] && [ -n "$ACC_AGENT_WEB_CLOUDFLARE_TEAM" ]; then
+		die "--cloudflare-team needs --cloudflare-aud"
+	fi
+}
+
+# access_env prints the settings that are set as VAR=value lines.
+access_env() {
+	for v in $ACCESS_VARS; do
+		val="$(eval "printf '%s' \"\$ACC_$v\"")"
+		[ -z "$val" ] || printf '%s=%s\n' "$v" "$val"
+	done
+}
+
+# access_flags prints the settings as agent-web flags, for manual starts.
+access_flags() {
+	[ -z "$ACC_AGENT_WEB_ALLOWED_HOSTS" ] || printf ' --allowed-hosts %s' "$ACC_AGENT_WEB_ALLOWED_HOSTS"
+	[ -z "$ACC_AGENT_WEB_ALLOWED_ANY_HOST" ] || printf ' --allowed-any-host'
+	[ -z "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ] || printf ' --cloudflare-aud %s --cloudflare-team %s' "$ACC_AGENT_WEB_CLOUDFLARE_AUD" "$ACC_AGENT_WEB_CLOUDFLARE_TEAM"
+}
+
+no_previous() { :; }
+
+describe_access() {
+	if [ -n "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ]; then
+		info "Access: Cloudflare Access (team ${ACC_AGENT_WEB_CLOUDFLARE_TEAM})"
+	fi
+	if [ -n "$ACC_AGENT_WEB_ALLOWED_ANY_HOST" ]; then
+		info "Hosts: any"
+		[ -n "$ACC_AGENT_WEB_CLOUDFLARE_AUD" ] ||
+			warn "any Host is accepted without authentication: make sure only an authenticating proxy can reach 127.0.0.1:${PORT}"
+	elif [ -n "$ACC_AGENT_WEB_ALLOWED_HOSTS" ]; then
+		info "Hosts: localhost, ${ACC_AGENT_WEB_ALLOWED_HOSTS}"
+	fi
+}
+
 # --- Linux: systemd user service ---------------------------------------------------
 
 systemd_dir() { printf '%s/systemd/user' "${XDG_CONFIG_HOME:-$HOME/.config}"; }
@@ -221,9 +299,11 @@ linux_service() {
 	LOG_HINT="journalctl --user -u ${NAME} -e"
 	[ -n "$PORT" ] || PORT="$(previous_port "$unit")"
 	[ -n "$PORT" ] || PORT=$DEFAULT_PORT
+	ENVFILE="$envfile"
+	resolve_access linux_previous
 	if ! systemd_user_ok; then
 		warn "systemd user services are not available here, so agent-web will not start at boot."
-		say "  Start it yourself: ${BIN} --addr 127.0.0.1:${PORT}"
+		say "  Start it yourself: ${BIN} --addr 127.0.0.1:${PORT}$(access_flags)"
 		return 0
 	fi
 	# Our own running service answers as agent-web and passes this check.
@@ -236,6 +316,7 @@ linux_service() {
 		echo "# Written by install.sh; rerunning it rewrites this file."
 		echo "PATH=$(service_path)"
 		[ -z "${LANG:-}" ] || echo "LANG=${LANG}"
+		access_env
 	} >"$envfile"
 	cat >"$unit" <<EOF
 # Written by install.sh; rerunning it rewrites this file.
@@ -265,6 +346,7 @@ EOF
 		systemctl --user start "${NAME}.service"
 	fi
 	info "Service: ${unit}"
+	describe_access
 
 	# User services start at login unless lingering is on; with it they
 	# start at boot.
@@ -284,6 +366,12 @@ EOF
 		fi
 	fi
 	wait_healthy || true
+}
+
+# linux_previous prints a setting of the previous install's environment file.
+linux_previous() { # var
+	[ -f "$ENVFILE" ] || return 0
+	sed -n "s/^$1=//p" "$ENVFILE" | tail -n 1
 }
 
 linux_uninstall() {
@@ -328,6 +416,9 @@ darwin_plist() {
 		<string>$(xml_escape "$HOME")</string>
 		<key>LANG</key>
 		<string>$(xml_escape "${LANG:-en_US.UTF-8}")</string>
+$(access_env | while IFS='=' read -r k v; do
+		printf '\t\t<key>%s</key>\n\t\t<string>%s</string>\n' "$k" "$(xml_escape "$v")"
+	done)
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -358,6 +449,8 @@ darwin_service() {
 	domain="gui/$(id -u)"
 	[ -n "$PORT" ] || PORT="$(previous_port "$plist")"
 	[ -n "$PORT" ] || PORT=$DEFAULT_PORT
+	PLIST="$plist"
+	resolve_access darwin_previous
 	running=0
 	launchctl print "${domain}/${LAUNCHD_LABEL}" >/dev/null 2>&1 && running=1
 	if [ $running = 1 ]; then
@@ -375,12 +468,19 @@ darwin_service() {
 	darwin_plist "$log" >"$plist"
 	if ! launchctl bootstrap "$domain" "$plist" 2>/dev/null; then
 		warn "could not load the launchd agent (no GUI login session?). It is installed and starts at your next login."
-		say "  Or start it now: ${BIN} --addr 127.0.0.1:${PORT}"
+		say "  Or start it now: ${BIN} --addr 127.0.0.1:${PORT}$(access_flags)"
 		return 0
 	fi
 	launchctl enable "${domain}/${LAUNCHD_LABEL}" 2>/dev/null || true
 	info "Service: ${plist} (starts when you log in)"
+	describe_access
 	wait_healthy || true
+}
+
+# darwin_previous prints a setting of the previous install's launchd agent.
+darwin_previous() { # var
+	[ -f "$PLIST" ] || return 0
+	/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:$1" "$PLIST" 2>/dev/null || true
 }
 
 darwin_uninstall() {
@@ -401,6 +501,12 @@ main() {
 	BIN_DIR="${AGENT_WEB_BIN_DIR:-$HOME/.local/bin}"
 	SERVICE=1
 	UNINSTALL=0
+	for v in $ACCESS_VARS; do
+		eval "ACC_$v=''; ACCSET_$v=''"
+		if [ -n "$(eval "printf '%s' \"\${$v+x}\"")" ]; then
+			set_access "$v" "$(eval "printf '%s' \"\$$v\"")"
+		fi
+	done
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--version)
@@ -421,6 +527,29 @@ main() {
 		--no-service)
 			SERVICE=0
 			shift
+			;;
+		--allowed-hosts)
+			[ $# -ge 2 ] || die "--allowed-hosts needs a value"
+			set_access AGENT_WEB_ALLOWED_HOSTS "$2"
+			shift 2
+			;;
+		--allowed-any-host)
+			set_access AGENT_WEB_ALLOWED_ANY_HOST true
+			shift
+			;;
+		--no-allowed-any-host)
+			set_access AGENT_WEB_ALLOWED_ANY_HOST ""
+			shift
+			;;
+		--cloudflare-aud)
+			[ $# -ge 2 ] || die "--cloudflare-aud needs a value"
+			set_access AGENT_WEB_CLOUDFLARE_AUD "$2"
+			shift 2
+			;;
+		--cloudflare-team)
+			[ $# -ge 2 ] || die "--cloudflare-team needs a value"
+			set_access AGENT_WEB_CLOUDFLARE_TEAM "$2"
+			shift 2
 			;;
 		--uninstall)
 			UNINSTALL=1
@@ -471,7 +600,8 @@ main() {
 
 	if [ $SERVICE = 0 ]; then
 		[ -n "$PORT" ] || PORT=$DEFAULT_PORT
-		say "Start it with: ${BIN} --addr 127.0.0.1:${PORT}"
+		resolve_access no_previous
+		say "Start it with: ${BIN} --addr 127.0.0.1:${PORT}$(access_flags)"
 		exit 0
 	fi
 	if [ "$OS" = linux ]; then linux_service; else darwin_service; fi
