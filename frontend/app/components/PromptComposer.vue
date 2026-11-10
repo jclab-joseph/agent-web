@@ -107,7 +107,7 @@ const placeholder = computed(() => {
   if (props.session.status === 'stopped')
     return props.session.resumable ? 'Message… (the CLI resumes the conversation)' : 'Message… (starts the CLI)'
   if (busy.value) return 'Working… you can type your next message'
-  return 'Message, or /command…  (Enter to send, Shift+Enter for a new line, paste or drop files)'
+  return 'Message, or /command…  (Ctrl+Enter to send, Enter for a new line, paste or drop files)'
 })
 
 async function submit() {
@@ -142,7 +142,8 @@ async function interrupt() {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  // Enter inserts a newline; Ctrl+Enter (or Cmd+Enter on macOS) sends.
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
     e.preventDefault()
     submit()
   }
@@ -181,9 +182,20 @@ defineExpose({ focus: () => ta.value?.focus(), addFiles })
         @keydown="onKey"
         @paste="onPaste"
       />
-      <button v-if="busy" type="button" class="btn danger" title="Interrupt the running turn" @click="interrupt">Stop</button>
-      <button class="btn primary" :disabled="!canSend">
-        {{ sending ? (session.status === 'stopped' ? 'Resuming…' : 'Sending…') : isCommand ? 'Run' : 'Send' }}
+      <button v-if="busy" type="button" class="btn danger action" title="Interrupt the running turn" aria-label="Stop" @click="interrupt">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+        <span class="txt">Stop</span>
+      </button>
+      <button
+        class="btn primary action"
+        :disabled="!canSend"
+        :title="isCommand ? 'Run (Ctrl+Enter)' : 'Send (Ctrl+Enter)'"
+        :aria-label="isCommand ? 'Run' : 'Send'"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 19V5M5 12l7-7 7 7" />
+        </svg>
+        <span class="txt">{{ sending ? (session.status === 'stopped' ? 'Resuming…' : 'Sending…') : isCommand ? 'Run' : 'Send' }}</span>
       </button>
     </div>
   </form>
@@ -223,6 +235,39 @@ defineExpose({ focus: () => ta.value?.focus(), addFiles })
 .attach {
   width: 40px;
   color: var(--text-2);
+}
+
+/* Phones: compact icon-only buttons so the text field gets the width. */
+@media (max-width: 640px) {
+  .composer {
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+  .row {
+    gap: 4px;
+  }
+  .textarea {
+    min-height: 36px;
+    padding: 7px 10px;
+    font-size: 16px; /* avoids the iOS zoom-on-focus */
+  }
+  .btn {
+    height: 36px;
+  }
+  .attach {
+    width: 32px;
+    height: 32px;
+    border-color: transparent;
+    background: transparent;
+  }
+  .action {
+    width: 36px;
+    padding: 0;
+    border-radius: 50%;
+  }
+  .action .txt {
+    display: none;
+  }
 }
 .files {
   display: flex;
